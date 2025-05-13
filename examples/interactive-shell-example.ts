@@ -231,7 +231,7 @@ The shell will automatically create these files in the workspace.`
               console.log('Generating file structure...\n');
               
               // Group files by directory for better presentation
-              const filesByDir = response.structure.files.reduce((acc: { [key: string]: Array<{ path: string; content: string; description: string }> }, file) => {
+              const filesByDir = response.structure.files.reduce((acc: { [key: string]: Array<{ path: string; content: string; description: string }> }, file: { path: string; content: string; description: string }) => {
                 const dir = path.dirname(file.path);
                 if (!acc[dir]) acc[dir] = [];
                 acc[dir].push(file);
@@ -239,7 +239,7 @@ The shell will automatically create these files in the workspace.`
               }, {});
               
               // Create files and display in a directory-based structure
-              for (const [dir, files] of Object.entries(filesByDir)) {
+              for (const [dir, files] of Object.entries(filesByDir) as [string, Array<{ path: string; content: string; description: string }>][]) {
                 if (dir !== '.') {
                   console.log(`📁 ${dir}/`);
                 }
