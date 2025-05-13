@@ -6,6 +6,7 @@ import { ContainerStrategy } from '../src/types';
 import * as readline from 'readline';
 import * as path from 'path';
 import * as fs from 'fs';
+import { createFileTools } from '../src/file-tools';
 
 // Simple spinner animation
 const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -98,7 +99,11 @@ async function main() {
   const sessionInfo = await executionEngine.getSessionInfo(sessionId);
   const workspaceDir = sessionInfo.currentContainer.meta?.workspaceDir;
 
-  console.log('\n=== Interactive AI Shell ===\n');
+  // Create file tools for the workspace directory
+  const { createFileStructureTool, writeFileTool, readFileTool, listFilesTool } = createFileTools(workspaceDir ?? process.cwd());
+
+  console.log('⚡️ AI Shell ⚡️ - code-interpreter-tools interactive shell example');
+  console.log('GitHub: https://github.com/CatchTheTornado/code-interpreter-tools\n');
   console.log('Workspace Directory:', workspaceDir);
   console.log('Type your commands or AI prompts below.');
   console.log('Special commands:');
@@ -166,30 +171,29 @@ async function main() {
           messages: [
             {
               role: 'system',
-              content: `You are an AI assistant in an interactive shell environment. Here is the history of previous commands and their outputs:\n\n${historyContext}\n\nBased on this history, execute the following command or prompt. If not specified differently, try to use shell or python. If using non-standard modules, pass them as "dependencies" to be installed. If user asks about the history or context shared with the conversation and you can answer based on the information you already have you do not need to call any command - just answer.
+              content: `You are an AI assistant in an interactive shell environment. Shell is bash, you are on alpine linux. Use "apk" in case of missing shell commands. Here is the history of previous commands and their outputs:\n\n${historyContext}\n\nBased on this history, execute the following command or prompt. Use the "codeExecutionTool" to execute the code to achieve the user desired result. If not specified differently, try to use "shell" or "python" languages. If using non-standard modules, pass them as "dependencies" to be installed. If user asks about the history or context shared with the conversation and you can answer based on the information you already have you do not need to call any command - just answer, but do not assume anything which is dynamic - for example always check the files and folder content using "codeExecutionTool" and do not assume you know it.
+                        When asked to generate a file structure or create multiple files, call the "createFileStructureTool" tool and pass the JSON object describing the structure as the "structure" argument. The JSON should be in this format:
+                        {
+                          "structure": {
+                            "files": [
+                              {
+                                "path": "path/to/file",
+                                "content": "file content",
+                                "description": "what this file does"
+                              }
+                            ],
+                            "dependencies": ["list", "of", "dependencies"]
+                          }
+                        }
 
-When asked to generate a file structure or create multiple files, respond with a JSON object in this format:
-{
-  "structure": {
-    "files": [
-      {
-        "path": "path/to/file",
-        "content": "file content",
-        "description": "what this file does"
-      }
-    ],
-    "dependencies": ["list", "of", "dependencies"]
-  }
-}
-
-The shell will automatically create these files in the workspace.`
+                        `
             },
             {
               role: 'user',
               content: input
             }
           ],
-          tools: { codeExecutionTool },
+          tools: { codeExecutionTool, createFileStructureTool },
           toolChoice: 'auto'
         });
 
@@ -198,6 +202,8 @@ The shell will automatically create these files in the workspace.`
         // Display execution results
         const toolResult = (result.toolResults?.[0] as any)?.result;
         const executionInfo = (result.toolCalls?.[0] as any)?.args;
+
+        // Remove debug logs; display handled below
 
         // Store in history
         const historyEntry: CommandHistory = {
@@ -208,82 +214,54 @@ The shell will automatically create these files in the workspace.`
         };
         commandHistory.push(historyEntry);
 
-        // Display AI response if no command was executed
-        if (!executionInfo && result.text) {
-          console.log('\nAI Response:');
-          
-          // Check if the response contains a JSON structure
-          try {
-            // Try to find JSON in the text (looking for content between ```json and ```)
-            const jsonMatch = result.text.match(/```json\n([\s\S]*?)\n```/);
-            let jsonContent = jsonMatch ? jsonMatch[1] : result.text;
-            
-            // Try to parse the JSON
-            const response = JSON.parse(jsonContent);
-            if (response.structure?.files) {
-              // Extract and display the text explanation before the JSON
-              const textExplanation = result.text.split('```json')[0].trim();
-              if (textExplanation) {
-                console.log(textExplanation);
-                console.log();
-              }
-              
-              console.log('Generating file structure...\n');
-              
-              // Group files by directory for better presentation
-              const filesByDir = response.structure.files.reduce((acc: { [key: string]: Array<{ path: string; content: string; description: string }> }, file: { path: string; content: string; description: string }) => {
-                const dir = path.dirname(file.path);
-                if (!acc[dir]) acc[dir] = [];
-                acc[dir].push(file);
-                return acc;
-              }, {});
-              
-              // Create files and display in a directory-based structure
-              for (const [dir, files] of Object.entries(filesByDir) as [string, Array<{ path: string; content: string; description: string }>][]) {
-                if (dir !== '.') {
-                  console.log(`📁 ${dir}/`);
-                }
-                
-                for (const file of files) {
-                  const filePath = path.join(process.cwd(), file.path);
-                  const dirPath = path.dirname(filePath);
-                  
-                  // Create directory if it doesn't exist
-                  if (!fs.existsSync(dirPath)) {
-                    fs.mkdirSync(dirPath, { recursive: true });
-                  }
-                  
-                  // Write file
-                  fs.writeFileSync(filePath, file.content);
-                  
-                  const fileName = path.basename(file.path);
-                  console.log(`   📄 ${fileName}`);
-                  console.log(`      ${file.description}`);
-                }
-                console.log();
-              }
-
-              // Show dependencies if any
-              if (response.structure.dependencies?.length > 0) {
-                console.log('Dependencies:');
-                console.log('   ' + response.structure.dependencies.join(', '));
-                console.log();
-              }
-
-              console.log('✨ Files have been generated successfully!');
-            } else {
-              console.log(result.text);
-            }
-          } catch (e) {
-            // If not a JSON or doesn't match the structure, display as regular text
-            console.log(result.text);
-          }
-          console.log();
+        // Display AI textual response if provided
+        if (result.text && result.text.trim().length > 0) {
+          console.log('\n🤖 AI Response:');
+          console.log(result.text.trim());
         }
 
-        if (toolResult) {
+        // Handle createFileStructureTool custom display
+        if (toolResult && (toolResult.files || toolResult.dirs)) {
+          const filesArr: Array<{ path: string; description?: string }> = toolResult.files ?? [];
+          const dirsArr: string[] = toolResult.dirs ?? [];
+
+          // Build dir groups
+          const dirGroups: Record<string, Array<{ path: string; description?: string }>> = {};
+          for (const file of filesArr) {
+            const d = path.dirname(file.path);
+            if (!dirGroups[d]) dirGroups[d] = [];
+            dirGroups[d].push(file);
+          }
+          // Ensure empty dirs are included
+          for (const d of dirsArr) {
+            if (!dirGroups[d]) dirGroups[d] = [];
+          }
+
+          console.log('\n📂 Workspace changes:\n');
+          const sortedDirs = Object.keys(dirGroups).sort();
+          for (const dir of sortedDirs) {
+            const prettyDir = dir === '.' ? '' : `📁 ${dir}/`;
+            if (prettyDir) console.log(prettyDir);
+            const filesInDir = dirGroups[dir];
+            for (const f of filesInDir) {
+              const fileName = path.basename(f.path);
+              console.log(`${dir === '.' ? '' : '   '}📄 ${fileName}`);
+              if (f.description) console.log(`${dir === '.' ? '' : '      '}${f.description}`);
+            }
+            if (filesInDir.length === 0) console.log(`${dir === '.' ? '' : '   '}(empty)`);
+            console.log();
+          }
+
+          if (toolResult.dependencies && toolResult.dependencies.length > 0) {
+            console.log('📦 Dependencies:');
+            console.log('   ' + toolResult.dependencies.join(', '));
+            console.log();
+          }
+
+          console.log('✨ File structure updated successfully!');
+        } else if (toolResult) {
           // Show what's being executed
-          if (executionInfo) {
+          if (executionInfo && executionInfo.language) {
             console.log('\nExecuting in Docker sandbox:');
             if (executionInfo.runApp) {
               console.log(`Application: ${executionInfo.runApp.entryFile}`);
@@ -313,6 +291,9 @@ The shell will automatically create these files in the workspace.`
             console.log('\n[Generated files: ' + toolResult.generatedFiles.join(', ') + ']');
           }
         }
+
+        console.log(); // Add blank line for readability
+        prompt(); // Continue the loop
       } catch (error) {
         stopSpinner(false, 'Error occurred');
         console.error('Error:', error);
@@ -340,7 +321,7 @@ The shell will automatically create these files in the workspace.`
                 content: input
               }
             ],
-            tools: { codeExecutionTool },
+            tools: { codeExecutionTool, createFileStructureTool },
             toolChoice: 'auto'
           });
 
@@ -352,7 +333,7 @@ The shell will automatically create these files in the workspace.`
           }
 
           const fixToolResult = (fixResult.toolResults?.[0] as any)?.result;
-          if (fixToolResult) {
+          if (fixToolResult?.stdout || fixToolResult?.stderr) {
             console.log('\nFixed command output:');
             if (fixToolResult.stdout) console.log(fixToolResult.stdout);
             if (fixToolResult.stderr) console.error(fixToolResult.stderr);
@@ -360,10 +341,10 @@ The shell will automatically create these files in the workspace.`
         } catch (fixError) {
           console.error('Failed to fix the error:', fixError);
         }
-      }
 
-      console.log(); // Add blank line for readability
-      prompt(); // Continue the loop
+        console.log(); // Add blank line for readability
+        prompt(); // Continue the loop
+      }
     });
   };
 
@@ -372,10 +353,10 @@ The shell will automatically create these files in the workspace.`
 
   // Handle cleanup on exit
   rl.on('close', async () => {
-    console.log('\nCleaning up...');
+    console.log('\n🧹 Cleaning up...');
     await executionEngine.cleanupSession(sessionId);
     process.exit(0);
   });
 }
 
-main().catch(console.error); 
+main().catch(console.error);
