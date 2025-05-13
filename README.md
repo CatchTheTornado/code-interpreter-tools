@@ -32,6 +32,16 @@ yarn install
 yarn ts-node examples/interactive-shell-example.ts
 ```
 
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=IEmSTsiPmxI" target="_blank">
+    <img src="https://img.youtube.com/vi/IEmSTsiPmxI/hqdefault.jpg"
+         alt="Interactive AI Shell tutorial – watch on YouTube"
+         width="560" height="315">
+  </a>
+</p>
+
+
 ## Presenting Some Cool Use Cases
 
 Here are some examples showcasing different capabilities of Interpreter Tools:
