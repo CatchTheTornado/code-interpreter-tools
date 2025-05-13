@@ -32,6 +32,7 @@ yarn install
 yarn ts-node examples/interactive-shell-example.ts
 ```
 
+## Check out the video explainer
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=IEmSTsiPmxI" target="_blank">
