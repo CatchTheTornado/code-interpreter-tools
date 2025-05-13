@@ -6,6 +6,7 @@ import { ContainerStrategy } from '../src/types';
 import * as readline from 'readline';
 import * as path from 'path';
 import * as fs from 'fs';
+import { createFileTools } from '../src/file-tools';
 
 // Simple spinner animation
 const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -98,6 +99,9 @@ async function main() {
   const sessionInfo = await executionEngine.getSessionInfo(sessionId);
   const workspaceDir = sessionInfo.currentContainer.meta?.workspaceDir;
 
+  // Create file tools for the workspace directory
+  const { createFileStructureTool, writeFileTool, readFileTool, listFilesTool } = createFileTools(workspaceDir ?? process.cwd());
+
   console.log('\n=== Interactive AI Shell ===\n');
   console.log('Workspace Directory:', workspaceDir);
   console.log('Type your commands or AI prompts below.');
@@ -168,7 +172,7 @@ async function main() {
               role: 'system',
               content: `You are an AI assistant in an interactive shell environment. Here is the history of previous commands and their outputs:\n\n${historyContext}\n\nBased on this history, execute the following command or prompt. If not specified differently, try to use shell or python. If using non-standard modules, pass them as "dependencies" to be installed. If user asks about the history or context shared with the conversation and you can answer based on the information you already have you do not need to call any command - just answer.
 
-When asked to generate a file structure or create multiple files, respond with a JSON object in this format:
+When asked to generate a file structure or create multiple files, call the "createFileStructureTool" tool and pass the JSON object describing the structure as the "structure" argument. The JSON should be in this format:
 {
   "structure": {
     "files": [
@@ -182,14 +186,20 @@ When asked to generate a file structure or create multiple files, respond with a
   }
 }
 
-The shell will automatically create these files in the workspace.`
+The shell will automatically create these files in the workspace.
+
+Use the other available tools when appropriate:
+- "writeFileTool" to create or overwrite a single file.
+- "readFileTool" to read a file's content.
+- "listFilesTool" to list files and folders under a directory.
+All paths must be relative to the workspace root and cannot traverse outside it.`
             },
             {
               role: 'user',
               content: input
             }
           ],
-          tools: { codeExecutionTool },
+          tools: { codeExecutionTool, createFileStructureTool, writeFileTool, readFileTool, listFilesTool },
           toolChoice: 'auto'
         });
 
@@ -340,7 +350,7 @@ The shell will automatically create these files in the workspace.`
                 content: input
               }
             ],
-            tools: { codeExecutionTool },
+            tools: { codeExecutionTool, createFileStructureTool, writeFileTool, readFileTool, listFilesTool },
             toolChoice: 'auto'
           });
 
