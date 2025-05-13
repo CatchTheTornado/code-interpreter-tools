@@ -9,6 +9,19 @@ import * as readline from 'readline';
 const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 let spinnerInterval: NodeJS.Timeout;
 
+// Command history interface
+interface CommandHistory {
+  input: string;
+  executionInfo?: any;
+  output?: {
+    stdout?: string;
+    stderr?: string;
+    generatedFiles?: string[];
+  };
+  error?: string;
+  timestamp: Date;
+}
+
 function startSpinner(message: string) {
   let i = 0;
   process.stdout.write('\r' + message + ' ' + spinner[0]);
@@ -23,6 +36,36 @@ function stopSpinner(success: boolean, message: string) {
   process.stdout.write('\r' + (success ? '✓' : '✗') + ' ' + message + '\n');
 }
 
+// Function to format history for AI context
+function formatHistoryForAI(history: CommandHistory[]): string {
+  return history.map(entry => {
+    let formatted = `Command: ${entry.input}\n`;
+    if (entry.executionInfo) {
+      formatted += `Execution Details:\n`;
+      if (entry.executionInfo.runApp) {
+        formatted += `- Application: ${entry.executionInfo.runApp.entryFile}\n`;
+        formatted += `- Working directory: ${entry.executionInfo.runApp.cwd}\n`;
+      } else {
+        formatted += `- Language: ${entry.executionInfo.language}\n`;
+        if (entry.executionInfo.dependencies?.length > 0) {
+          formatted += `- Dependencies: ${entry.executionInfo.dependencies.join(', ')}\n`;
+        }
+        formatted += `- Code:\n\`\`\`${entry.executionInfo.language}\n${entry.executionInfo.code}\n\`\`\`\n`;
+      }
+    }
+    if (entry.output) {
+      if (entry.output.stdout) formatted += `Output:\n${entry.output.stdout}\n`;
+      if (entry.output.stderr) formatted += `Error Output:\n${entry.output.stderr}\n`;
+      if (entry.output.generatedFiles && entry.output.generatedFiles.length > 0) {
+        formatted += `Generated Files: ${entry.output.generatedFiles.join(', ')}\n`;
+      }
+    }
+    if (entry.error) formatted += `Error: ${entry.error}\n`;
+    formatted += `---\n`;
+    return formatted;
+  }).join('\n');
+}
+
 async function main() {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -30,6 +73,7 @@ async function main() {
   });
 
   const sessionId = `interactive-${uuidv4()}`;
+  const commandHistory: CommandHistory[] = [];
   
   // Create the execution tool with shared workspace
   const { codeExecutionTool, executionEngine } = createCodeExecutionTool({
@@ -57,6 +101,7 @@ async function main() {
   console.log('Type your commands or AI prompts below.');
   console.log('Special commands:');
   console.log('  - "info" - Show session information and container history');
+  console.log('  - "history" - Show command history');
   console.log('  - "quit" - Exit the shell');
   console.log('\n');
 
@@ -96,29 +141,64 @@ async function main() {
         return;
       }
 
+      if (input.toLowerCase() === 'history') {
+        console.log('\n=== Command History ===\n');
+        commandHistory.forEach((entry, index) => {
+          console.log(`[${index + 1}] ${entry.input}`);
+          if (entry.error) {
+            console.log('   Error:', entry.error);
+          }
+          console.log();
+        });
+        prompt();
+        return;
+      }
+
       startSpinner('AI Thinking...');
       
       try {
+        const historyContext = formatHistoryForAI(commandHistory);
         const result = await generateText({
           model: openai('gpt-4'),
           maxSteps: 1,
           messages: [
             {
+              role: 'system',
+              content: `You are an AI assistant in an interactive shell environment. Here is the history of previous commands and their outputs:\n\n${historyContext}\n\nBased on this history, execute the following command or prompt. If not specified differently, try to use shell or python. If using non-standard modules, pass them as "dependencies" to be installed. If user asks about the history or context shared with the conversation and you can answer based on the information you already have you do not need to call any command - just answer.`
+            },
+            {
               role: 'user',
-              content: `Execute this command or prompt, if not specified different try to use shell or python, if using non standard modules pass them as "dependencies" to be installed: ${input}`
+              content: input
             }
           ],
           tools: { codeExecutionTool },
-          toolChoice: 'required'
+          toolChoice: 'auto'
         });
 
         stopSpinner(true, 'AI Response received');
 
         // Display execution results
         const toolResult = (result.toolResults?.[0] as any)?.result;
+        const executionInfo = (result.toolCalls?.[0] as any)?.args;
+
+        // Store in history
+        const historyEntry: CommandHistory = {
+          input,
+          executionInfo,
+          output: toolResult,
+          timestamp: new Date()
+        };
+        commandHistory.push(historyEntry);
+
+        // Display AI response if no command was executed
+        if (!executionInfo && result.text) {
+          console.log('\nAI Response:');
+          console.log(result.text);
+          console.log();
+        }
+
         if (toolResult) {
           // Show what's being executed
-          const executionInfo = (result.toolCalls?.[0] as any)?.args;
           if (executionInfo) {
             console.log('\nExecuting in Docker sandbox:');
             if (executionInfo.runApp) {
@@ -137,17 +217,14 @@ async function main() {
           }
 
           console.log('\nOutput:');
-          // Display stdout directly
           if (toolResult.stdout) {
             console.log(toolResult.stdout);
           }
           
-          // Display stderr in red if present
           if (toolResult.stderr) {
             console.error(toolResult.stderr);
           }
 
-          // Show generated files in a subtle way
           if (toolResult.generatedFiles?.length > 0) {
             console.log('\n[Generated files: ' + toolResult.generatedFiles.join(', ') + ']');
           }
@@ -155,6 +232,50 @@ async function main() {
       } catch (error) {
         stopSpinner(false, 'Error occurred');
         console.error('Error:', error);
+
+        // Store error in history
+        commandHistory.push({
+          input,
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date()
+        });
+
+        // Ask AI to fix the error
+        try {
+          console.log('\nAttempting to fix the error...');
+          const fixResult = await generateText({
+            model: openai('gpt-4'),
+            maxSteps: 1,
+            messages: [
+              {
+                role: 'system',
+                content: `Previous command failed with error: ${error}\n\nPlease analyze the error and provide a fixed version of the command.`
+              },
+              {
+                role: 'user',
+                content: input
+              }
+            ],
+            tools: { codeExecutionTool },
+            toolChoice: 'auto'
+          });
+
+          // Display AI's explanation if present
+          if (fixResult.text) {
+            console.log('\nAI Analysis:');
+            console.log(fixResult.text);
+            console.log();
+          }
+
+          const fixToolResult = (fixResult.toolResults?.[0] as any)?.result;
+          if (fixToolResult) {
+            console.log('\nFixed command output:');
+            if (fixToolResult.stdout) console.log(fixToolResult.stdout);
+            if (fixToolResult.stderr) console.error(fixToolResult.stderr);
+          }
+        } catch (fixError) {
+          console.error('Failed to fix the error:', fixError);
+        }
       }
 
       console.log(); // Add blank line for readability
