@@ -52,8 +52,8 @@ export function createFileTools(rootDir: string) {
   const createFileStructureTool: Tool = {
     description: 'Creates a structure of files and directories based on the provided JSON object.',
     parameters: createStructureSchema,
-    execute: async ({ structure }: z.infer<typeof createStructureSchema>): Promise<{ stdout: string; generatedFiles: string[]; createdDirs: string[]; dependencies?: string[] }> => {
-      const generatedFiles: string[] = [];
+    execute: async ({ structure }: z.infer<typeof createStructureSchema>): Promise<{ files: Array<{ path: string; description?: string }>; dirs: string[]; summary: string; dependencies?: string[] }> => {
+      const generatedFiles: Array<{ path: string; description?: string }> = [];
       const createdDirs: string[] = [];
 
       // Ensure directories (explicit or from file paths) exist
@@ -76,17 +76,17 @@ export function createFileTools(rootDir: string) {
         const dirPath = path.dirname(filePath);
         ensureDir(path.relative(rootDir, dirPath));
         fs.writeFileSync(filePath, file.content);
-        generatedFiles.push(file.path);
+        generatedFiles.push({ path: file.path, description: file.description });
       }
 
       const summaryLines: string[] = [];
       if (createdDirs.length > 0) summaryLines.push(`Created ${createdDirs.length} directories`, ...createdDirs);
-      if (generatedFiles.length > 0) summaryLines.push(`Generated ${generatedFiles.length} files`, ...generatedFiles);
+      if (generatedFiles.length > 0) summaryLines.push(`Generated ${generatedFiles.length} files`, ...generatedFiles.map(f=>f.path));
 
       return {
-        stdout: summaryLines.join('\n'),
-        generatedFiles,
-        createdDirs,
+        files: generatedFiles,
+        dirs: createdDirs,
+        summary: summaryLines.join('\n'),
         dependencies: structure.dependencies ?? []
       };
     }
