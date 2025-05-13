@@ -44,6 +44,7 @@ export function createCodeExecutionTool(config: CodeExecutionToolConfig = {}) {
       entryFile: z.string().describe('Path to the entry file relative to the mounted directory'),
       cwd: z.string().describe('Working directory path that should be mounted')
     }).optional().describe('Optional configuration for running an entire application'),
+    ports: z.array(z.number()).optional().describe('Ports to expose from the container to the host'),
     streamOutput: z.object({
       stdout: z.function().args(z.string()).optional(),
       stderr: z.function().args(z.string()).optional(),
@@ -67,6 +68,7 @@ export function createCodeExecutionTool(config: CodeExecutionToolConfig = {}) {
   //    sessionId,
       environment = {},
       runApp,
+      ports,
       streamOutput
     }: z.infer<typeof codeExecutionSchema>): Promise<CodeExecutionResult> => {
       const strategy = config.defaultStrategy ?? 'per_execution';
@@ -77,7 +79,8 @@ export function createCodeExecutionTool(config: CodeExecutionToolConfig = {}) {
         containerConfig: {
           image: getImageForLanguage(language),
           environment,
-          mounts: config.mounts
+          mounts: config.mounts,
+          ports
         }
       });
 
