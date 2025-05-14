@@ -33,9 +33,12 @@ export function createFileTools(
       const containerPrefix = path.posix.normalize(containerPrefixRaw).replace(/\/$/, '');
 
       if (normIncoming === containerPrefix || normIncoming.startsWith(containerPrefix + '/')) {
-        const rest = normIncoming.slice(containerPrefix.length);
+        let rest = normIncoming.slice(containerPrefix.length);
+        // Remove leading slash so rest is always relative
+        if (rest.startsWith('/')) rest = rest.slice(1);
+
         const localPrefix = path.posix.normalize(localPrefixRaw);
-        // path.posix.join will handle redundant slashes
+        // path.posix.join will handle redundant slashes; ensures the result is not absolute
         const mapped = path.posix.join(localPrefix, rest);
         return mapped;
       }
@@ -46,9 +49,20 @@ export function createFileTools(
   // Wrapper around resolveWithinRoot that first applies path mapping logic
   const resolvePathWithinRoot = (p: string): string => {
     const mapped = mapPath(p);
-    // Remove any leading forward slash to treat as relative (avoid absolute override)
-    const rel = mapped.startsWith('/') ? mapped.slice(1) : mapped;
-    return resolveWithinRoot(rootDir, rel);
+
+    // If the mapped path is absolute, ensure it's within rootDir and convert to relative
+    if (path.isAbsolute(mapped)) {
+      const abs = path.resolve(mapped);
+      const rootAbs = path.resolve(rootDir);
+      if (!abs.startsWith(rootAbs)) {
+        throw new Error('Attempt to access path outside root directory');
+      }
+      const rel = path.relative(rootAbs, abs);
+      return resolveWithinRoot(rootDir, rel);
+    }
+
+    // Otherwise treat as relative directly
+    return resolveWithinRoot(rootDir, mapped);
   };
 
   // Schema for creating file structure
