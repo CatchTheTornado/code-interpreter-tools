@@ -126,30 +126,30 @@ export function createFileTools(
   } as Tool;
 
   const writeFileTool: Tool = {
-    description: 'Writes content to a file within the root directory.',
+    description: 'Writes content to a file within the root directory and returns basic info about the operation.',
     parameters: writeFileSchema,
-    execute: async ({ path: filePath, content }: z.infer<typeof writeFileSchema>): Promise<{ stdout: string }> => {
+    execute: async ({ path: filePath, content }: z.infer<typeof writeFileSchema>): Promise<{ written: string }> => {
       const resolved = resolvePathWithinRoot(filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
       fs.writeFileSync(resolved, content);
-      return { stdout: `Wrote file ${filePath}` };
+      return { written: filePath };
     }
   };
 
   const readFileTool: Tool = {
-    description: 'Reads a file within the root directory and returns its content.',
+    description: 'Reads a file within the root directory and returns its content encoded in base64.',
     parameters: readFileSchema,
-    execute: async ({ path: filePath }: z.infer<typeof readFileSchema>): Promise<{ stdout: string }> => {
+    execute: async ({ path: filePath }: z.infer<typeof readFileSchema>): Promise<{ contentBase64: string }> => {
       const resolved = resolvePathWithinRoot(filePath);
-      const content = fs.readFileSync(resolved, 'utf8');
-      return { stdout: content };
+      const buffer = fs.readFileSync(resolved);
+      return { contentBase64: buffer.toString('base64') };
     }
   };
 
   const listFilesTool: Tool = {
     description: 'Lists all files and directories within a given path relative to the root directory.',
     parameters: listFilesSchema,
-    execute: async ({ path: dir = '.' }: z.infer<typeof listFilesSchema>): Promise<{ stdout: string }> => {
+    execute: async ({ path: dir = '.' }: z.infer<typeof listFilesSchema>): Promise<{ files: string[] }> => {
       const resolvedDir = resolvePathWithinRoot(dir);
       function walk(currentDir: string, base = ''): string[] {
         const entries = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -166,7 +166,7 @@ export function createFileTools(
         return results;
       }
       const files = walk(resolvedDir);
-      return { stdout: files.join('\n') };
+      return { files };
     }
   };
 
