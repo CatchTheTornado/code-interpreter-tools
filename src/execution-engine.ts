@@ -174,6 +174,15 @@ export class ExecutionEngine {
     this.verbosity = level;
   }
 
+  /**
+   * Expose the underlying ContainerManager instance. Use with caution – callers
+   * should avoid manipulating containers in a way that conflicts with the
+   * ExecutionEngine's own lifecycle management.
+   */
+  getContainerManager(): ContainerManager {
+    return this.containerManager;
+  }
+
   private logDebug(...args: any[]) {
     if (this.verbosity === 'debug') {
       console.log('[ExecutionEngine]', ...args);

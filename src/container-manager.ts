@@ -331,7 +331,7 @@ export class ContainerManager {
     }
   }
 
-  async cleanup(forceStopAllContainers: boolean = true): Promise<void> {
+  async cleanup(forceStopAllContainers: boolean = true, cleanContainerOlderThan?: number): Promise<void> {
     for (const container of this.containers.values()) {
       try {
         if (forceStopAllContainers) await container.stop();
@@ -358,7 +358,13 @@ export class ContainerManager {
       for (const info of all) {
         const hasPrefix = info.Names?.some(n => /\/it_/i.test(n));
         const isRunning = info.State === 'running' || info.State === 'restarting';
-        if (hasPrefix && (!isRunning || forceStopAllContainers)) {
+
+        // Determine if container meets age criteria (in minutes)
+        const meetsAgeCriteria = cleanContainerOlderThan === undefined
+          ? true
+          : (((Date.now() / 1000) - (info.Created ?? 0)) / 60) >= cleanContainerOlderThan;
+
+        if (hasPrefix && meetsAgeCriteria && (!isRunning || forceStopAllContainers)) {
           try {
             const leftoverContainer = this.docker.getContainer(info.Id);
             await leftoverContainer.remove({ force: true });
