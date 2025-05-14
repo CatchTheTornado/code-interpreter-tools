@@ -17,7 +17,40 @@ function resolveWithinRoot(rootDir: string, relativePath: string): string {
   return resolved;
 }
 
-export function createFileTools(rootDir: string) {
+export function createFileTools(
+  rootDir: string,
+  mapContainerPaths: Record<string, string> = {}
+) {
+  // Helper that maps an incoming (possibly container) path to a path relative to
+  // rootDir based on the provided mapping. If no mapping matches, the original
+  // path is returned unchanged.
+  const mapPath = (incomingPath: string): string => {
+    // Normalise to posix for reliable prefix comparison
+    const normIncoming = path.posix.normalize(incomingPath);
+
+    for (const [containerPrefixRaw, localPrefixRaw] of Object.entries(mapContainerPaths)) {
+      // Normalise prefixes and ensure trailing slashes are removed for comparison
+      const containerPrefix = path.posix.normalize(containerPrefixRaw).replace(/\/$/, '');
+
+      if (normIncoming === containerPrefix || normIncoming.startsWith(containerPrefix + '/')) {
+        const rest = normIncoming.slice(containerPrefix.length);
+        const localPrefix = path.posix.normalize(localPrefixRaw);
+        // path.posix.join will handle redundant slashes
+        const mapped = path.posix.join(localPrefix, rest);
+        return mapped;
+      }
+    }
+    return incomingPath; // no mapping applicable
+  };
+
+  // Wrapper around resolveWithinRoot that first applies path mapping logic
+  const resolvePathWithinRoot = (p: string): string => {
+    const mapped = mapPath(p);
+    // Remove any leading forward slash to treat as relative (avoid absolute override)
+    const rel = mapped.startsWith('/') ? mapped.slice(1) : mapped;
+    return resolveWithinRoot(rootDir, rel);
+  };
+
   // Schema for creating file structure
   const fileSchema = z.object({
     path: z.string().describe('Relative path of the file to create within the workspace.'),
@@ -58,7 +91,7 @@ export function createFileTools(rootDir: string) {
 
       // Ensure directories (explicit or from file paths) exist
       const ensureDir = (dirRelPath: string) => {
-        const absDir = resolveWithinRoot(rootDir, dirRelPath);
+        const absDir = resolvePathWithinRoot(dirRelPath);
         if (!fs.existsSync(absDir)) {
           fs.mkdirSync(absDir, { recursive: true });
           createdDirs.push(dirRelPath.endsWith('/') ? dirRelPath : dirRelPath + '/');
@@ -72,7 +105,7 @@ export function createFileTools(rootDir: string) {
 
       // Then process files
       for (const file of structure.files ?? []) {
-        const filePath = resolveWithinRoot(rootDir, file.path);
+        const filePath = resolvePathWithinRoot(file.path);
         const dirPath = path.dirname(filePath);
         ensureDir(path.relative(rootDir, dirPath));
         fs.writeFileSync(filePath, file.content);
@@ -96,7 +129,7 @@ export function createFileTools(rootDir: string) {
     description: 'Writes content to a file within the root directory.',
     parameters: writeFileSchema,
     execute: async ({ path: filePath, content }: z.infer<typeof writeFileSchema>): Promise<{ stdout: string }> => {
-      const resolved = resolveWithinRoot(rootDir, filePath);
+      const resolved = resolvePathWithinRoot(filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
       fs.writeFileSync(resolved, content);
       return { stdout: `Wrote file ${filePath}` };
@@ -107,7 +140,7 @@ export function createFileTools(rootDir: string) {
     description: 'Reads a file within the root directory and returns its content.',
     parameters: readFileSchema,
     execute: async ({ path: filePath }: z.infer<typeof readFileSchema>): Promise<{ stdout: string }> => {
-      const resolved = resolveWithinRoot(rootDir, filePath);
+      const resolved = resolvePathWithinRoot(filePath);
       const content = fs.readFileSync(resolved, 'utf8');
       return { stdout: content };
     }
@@ -117,7 +150,7 @@ export function createFileTools(rootDir: string) {
     description: 'Lists all files and directories within a given path relative to the root directory.',
     parameters: listFilesSchema,
     execute: async ({ path: dir = '.' }: z.infer<typeof listFilesSchema>): Promise<{ stdout: string }> => {
-      const resolvedDir = resolveWithinRoot(rootDir, dir);
+      const resolvedDir = resolvePathWithinRoot(dir);
       function walk(currentDir: string, base = ''): string[] {
         const entries = fs.readdirSync(currentDir, { withFileTypes: true });
         const results: string[] = [];

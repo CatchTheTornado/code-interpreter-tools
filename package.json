@@ -1,6 +1,6 @@
 {
   "name": "interpreter-tools",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "private": false,
   "license": "MIT",
   "main": "dist/index.js",
