@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { ContainerMount } from './types';
 import { LanguageRegistry } from './languages';
 
-interface CodeExecutionResult {
+export interface CodeExecutionResult {
   stdout: string;
   stderr: string;
   dependencyStdout: string;
@@ -17,7 +17,7 @@ interface CodeExecutionResult {
   sessionGeneratedFiles: string[];
 }
 
-interface CodeExecutionToolConfig {
+export interface CodeExecutionToolConfig {
   mounts?: ContainerMount[];
   sessionId?: string;
   defaultStrategy?: 'per_execution' | 'pool' | 'per_session';
