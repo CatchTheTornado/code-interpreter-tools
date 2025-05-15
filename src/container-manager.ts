@@ -112,6 +112,17 @@ export class ContainerManager {
       mountsWithWorkspace.push({ type: 'directory', source: workspaceDir, target: '/workspace' });
     }
 
+    // Handle port bindings if provided
+    const exposedPorts: Record<string, {}> = {};
+    const portBindings: Record<string, Array<{ HostPort: string }>> = {};
+    if (config.ports && config.ports.length > 0) {
+      for (const p of config.ports) {
+        const key = `${p}/tcp`;
+        exposedPorts[key] = {};
+        portBindings[key] = [{ HostPort: p.toString() }];
+      }
+    }
+
     const container = await this.docker.createContainer({
       name: containerName,
       Image: config.image,
@@ -122,6 +133,7 @@ export class ContainerManager {
         CpuPeriod: 100000,
         CpuQuota: 50000,
         NetworkMode: 'bridge',
+        PortBindings: Object.keys(portBindings).length > 0 ? portBindings : undefined,
         Mounts: mountsWithWorkspace.map(mount => ({
           Target: mount.target,
           Source: mount.source,
@@ -130,6 +142,7 @@ export class ContainerManager {
         }))
       },
       WorkingDir: '/workspace',
+      ExposedPorts: Object.keys(exposedPorts).length > 0 ? exposedPorts : undefined,
       Cmd: ['sh', '-c', 'mkdir -p /workspace && tail -f /dev/null']
     });
 

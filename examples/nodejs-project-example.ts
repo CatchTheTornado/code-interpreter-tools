@@ -21,7 +21,7 @@ async function main() {
 2. A package.json with necessary dependencies
 3. A README.md with setup instructions
 4. A simple route that returns "Hello World"
-5. Include a console log message "Listening on port 3000"
+5. Include a console log message "Listening on port 1234"
 
 Please format your response as follows:
 FILE: filename
@@ -83,6 +83,7 @@ Separate each file with a blank line.`
         cwd: '/project'
       },
       dependencies: ['express'],
+      ports: [1234],
       streamOutput: {
         dependencyStdout: (data) => {
           console.log('Dependency stdout:', data);

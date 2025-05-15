@@ -32,6 +32,7 @@ export interface ContainerConfig {
   mounts?: MountOptions[];
   environment?: Record<string, string>;
   name?: string;
+  ports?: number[]; // Host ports to publish (TCP)
 }
 
 export interface ExecutionResult {
