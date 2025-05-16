@@ -15,6 +15,7 @@ export interface CodeExecutionResult {
   workspaceDir: string;
   generatedFiles: string[];
   sessionGeneratedFiles: string[];
+  error?: string;
 }
 
 export interface CodeExecutionToolConfig {
@@ -71,31 +72,48 @@ export function createCodeExecutionTool(config: CodeExecutionToolConfig = {}) {
     }: z.infer<typeof codeExecutionSchema>): Promise<CodeExecutionResult> => {
       const strategy = config.defaultStrategy ?? 'per_execution';
       const sessionId = config.sessionId ?? uuidv4();
-      const session = await engine.createSession({
-        sessionId,
-        strategy: ContainerStrategy[strategy.toUpperCase() as keyof typeof ContainerStrategy],
-        containerConfig: {
-          image: getImageForLanguage(language),
-          environment,
-          mounts: config.mounts
+      const startTime = Date.now();
+      try {
+        const session = await engine.createSession({
+          sessionId,
+          strategy: ContainerStrategy[strategy.toUpperCase() as keyof typeof ContainerStrategy],
+          containerConfig: {
+            image: getImageForLanguage(language),
+            environment,
+            mounts: config.mounts
+          }
+        });
+
+        const result = await engine.executeCode(session, {
+          language: language as any,
+          code,
+          dependencies,
+          runApp,
+          streamOutput,
+          workspaceSharing: config.workspaceSharing ?? 'isolated'
+        });
+
+        // Auto cleanup for strategies other than per_session
+        if (strategy !== 'per_session') {
+          await engine.cleanupSession(session);
         }
-      });
 
-      const result = await engine.executeCode(session, {
-        language: language as any,
-        code,
-        dependencies,
-        runApp,
-        streamOutput,
-        workspaceSharing: config.workspaceSharing ?? 'isolated'
-      });
-
-      // Auto cleanup for strategies other than per_session
-      if (strategy !== 'per_session') {
-        await engine.cleanupSession(session);
+        return result;
+      } catch (err: any) {
+        // Always return a structured response even on error
+        return {
+          stdout: '',
+          stderr: '',
+          dependencyStdout: '',
+          dependencyStderr: '',
+          exitCode: -1,
+          executionTime: Date.now() - startTime,
+          workspaceDir: '',
+          generatedFiles: [],
+          sessionGeneratedFiles: [],
+          error: typeof err === 'object' && err ? (err.message ?? String(err)) : String(err)
+        };
       }
-
-      return result;
     }
   };
 

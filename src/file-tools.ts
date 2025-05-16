@@ -99,88 +99,104 @@ export function createFileTools(
   const createFileStructureTool: Tool = {
     description: 'Creates a structure of files and directories based on the provided JSON object.',
     parameters: createStructureSchema,
-    execute: async ({ structure }: z.infer<typeof createStructureSchema>): Promise<{ files: Array<{ path: string; description?: string }>; dirs: string[]; summary: string; dependencies?: string[] }> => {
-      const generatedFiles: Array<{ path: string; description?: string }> = [];
-      const createdDirs: string[] = [];
+    execute: async ({ structure }: z.infer<typeof createStructureSchema>): Promise<{ files?: Array<{ path: string; description?: string }>; dirs?: string[]; summary?: string; dependencies?: string[]; error?: string }> => {
+      try {
+        const generatedFiles: Array<{ path: string; description?: string }> = [];
+        const createdDirs: string[] = [];
 
-      // Ensure directories (explicit or from file paths) exist
-      const ensureDir = (dirRelPath: string) => {
-        const absDir = resolvePathWithinRoot(dirRelPath);
-        if (!fs.existsSync(absDir)) {
-          fs.mkdirSync(absDir, { recursive: true });
-          createdDirs.push(dirRelPath.endsWith('/') ? dirRelPath : dirRelPath + '/');
+        // Ensure directories (explicit or from file paths) exist
+        const ensureDir = (dirRelPath: string) => {
+          const absDir = resolvePathWithinRoot(dirRelPath);
+          if (!fs.existsSync(absDir)) {
+            fs.mkdirSync(absDir, { recursive: true });
+            createdDirs.push(dirRelPath.endsWith('/') ? dirRelPath : dirRelPath + '/');
+          }
+        };
+
+        // First create explicit empty directories
+        for (const dir of structure.dirs ?? []) {
+          ensureDir(dir);
         }
-      };
 
-      // First create explicit empty directories
-      for (const dir of structure.dirs ?? []) {
-        ensureDir(dir);
+        // Then process files
+        for (const file of structure.files ?? []) {
+          const filePath = resolvePathWithinRoot(file.path);
+          const dirPath = path.dirname(filePath);
+          ensureDir(path.relative(rootDir, dirPath));
+          fs.writeFileSync(filePath, file.content);
+          generatedFiles.push({ path: file.path, description: file.description });
+        }
+
+        const summaryLines: string[] = [];
+        if (createdDirs.length > 0) summaryLines.push(`Created ${createdDirs.length} directories`, ...createdDirs);
+        if (generatedFiles.length > 0) summaryLines.push(`Generated ${generatedFiles.length} files`, ...generatedFiles.map(f=>f.path));
+
+        return {
+          files: generatedFiles,
+          dirs: createdDirs,
+          summary: summaryLines.join('\n'),
+          dependencies: structure.dependencies ?? []
+        };
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) };
       }
-
-      // Then process files
-      for (const file of structure.files ?? []) {
-        const filePath = resolvePathWithinRoot(file.path);
-        const dirPath = path.dirname(filePath);
-        ensureDir(path.relative(rootDir, dirPath));
-        fs.writeFileSync(filePath, file.content);
-        generatedFiles.push({ path: file.path, description: file.description });
-      }
-
-      const summaryLines: string[] = [];
-      if (createdDirs.length > 0) summaryLines.push(`Created ${createdDirs.length} directories`, ...createdDirs);
-      if (generatedFiles.length > 0) summaryLines.push(`Generated ${generatedFiles.length} files`, ...generatedFiles.map(f=>f.path));
-
-      return {
-        files: generatedFiles,
-        dirs: createdDirs,
-        summary: summaryLines.join('\n'),
-        dependencies: structure.dependencies ?? []
-      };
     }
   } as Tool;
 
   const writeFileTool: Tool = {
     description: 'Writes content to a file within the root directory and returns basic info about the operation.',
     parameters: writeFileSchema,
-    execute: async ({ path: filePath, content }: z.infer<typeof writeFileSchema>): Promise<{ written: string }> => {
-      const resolved = resolvePathWithinRoot(filePath);
-      fs.mkdirSync(path.dirname(resolved), { recursive: true });
-      fs.writeFileSync(resolved, content);
-      return { written: filePath };
+    execute: async ({ path: filePath, content }: z.infer<typeof writeFileSchema>): Promise<{ written?: string; error?: string }> => {
+      try {
+        const resolved = resolvePathWithinRoot(filePath);
+        fs.mkdirSync(path.dirname(resolved), { recursive: true });
+        fs.writeFileSync(resolved, content);
+        return { written: filePath };
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) };
+      }
     }
   };
 
   const readFileTool: Tool = {
     description: 'Reads a file within the root directory and returns its content encoded in base64.',
     parameters: readFileSchema,
-    execute: async ({ path: filePath }: z.infer<typeof readFileSchema>): Promise<{ contentBase64: string }> => {
-      const resolved = resolvePathWithinRoot(filePath);
-      const buffer = fs.readFileSync(resolved);
-      return { contentBase64: buffer.toString('base64') };
+    execute: async ({ path: filePath }: z.infer<typeof readFileSchema>): Promise<{ contentBase64?: string; error?: string }> => {
+      try {
+        const resolved = resolvePathWithinRoot(filePath);
+        const buffer = fs.readFileSync(resolved);
+        return { contentBase64: buffer.toString('base64') };
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) };
+      }
     }
   };
 
   const listFilesTool: Tool = {
     description: 'Lists all files and directories within a given path relative to the root directory.',
     parameters: listFilesSchema,
-    execute: async ({ path: dir = '.' }: z.infer<typeof listFilesSchema>): Promise<{ files: string[] }> => {
-      const resolvedDir = resolvePathWithinRoot(dir);
-      function walk(currentDir: string, base = ''): string[] {
-        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-        const results: string[] = [];
-        for (const entry of entries) {
-          const relPath = path.join(base, entry.name);
-          if (entry.isDirectory()) {
-            results.push(relPath + '/');
-            results.push(...walk(path.join(currentDir, entry.name), relPath));
-          } else {
-            results.push(relPath);
+    execute: async ({ path: dir = '.' }: z.infer<typeof listFilesSchema>): Promise<{ files?: string[]; error?: string }> => {
+      try {
+        const resolvedDir = resolvePathWithinRoot(dir);
+        function walk(currentDir: string, base = ''): string[] {
+          const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+          const results: string[] = [];
+          for (const entry of entries) {
+            const relPath = path.join(base, entry.name);
+            if (entry.isDirectory()) {
+              results.push(relPath + '/');
+              results.push(...walk(path.join(currentDir, entry.name), relPath));
+            } else {
+              results.push(relPath);
+            }
           }
+          return results;
         }
-        return results;
+        const files = walk(resolvedDir);
+        return { files };
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) };
       }
-      const files = walk(resolvedDir);
-      return { files };
     }
   };
 
